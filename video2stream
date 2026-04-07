@@ -1,0 +1,90 @@
+#!/bin/bash
+
+if [ "$1" == "" ]; then
+  echo "Please provide me a video filename"
+  exit 1;
+fi
+
+if [ ! -f "$1" ]; then
+  echo "File $1 is not a file, soo..."
+  exit 1;
+fi
+
+# Get "subfilename"
+FILENAME9=`md5sum "$1" | awk '{print substr($0, 1, 9)}'`
+
+# Define Variables
+VIDEOFOLDER="$1-video"
+HTMLFILE="$1.html"
+VIDEOM3U8="$VIDEOFOLDER/$FILENAME9.m3u8"
+
+# Check if we've done this before?
+  if [ -d "$VIDEOFOLDER" ]; then
+  echo "There is a video folder for this already?"
+  exit 1;
+fi
+
+# Convert video to stream/mpeg2
+mkdir "$VIDEOFOLDER"
+ffmpeg \
+-i "$1" \
+-filter_complex '[0:v]split=1[v1]; [v1]copy[v1out];' \
+-map [v1out] \
+-c:v:0 libx264 \
+-x264-params nal-hrd=cbr:force-cfr=1 \
+-b:v:0 5M \
+-maxrate:v:0 5M \
+-minrate:v:0 5M \
+-bufsize:v:0 10M \
+-preset slow \
+-g 48 \
+-sc_threshold 0 \
+-keyint_min 48 \
+-map a:0 \
+-c:a:0 aac \
+-b:a:0 128k \
+-ac 2 \
+-f hls \
+-hls_time 15 \
+-hls_playlist_type vod \
+-hls_flags independent_segments \
+-hls_segment_type mpegts \
+-hls_segment_filename "$VIDEOFOLDER/$FILENAME9-data%04d.ts" \
+-master_pl_name "$FILENAME9-master.m3u8" \
+-var_stream_map v:0,a:0 \
+"$VIDEOFOLDER"/"$FILENAME9".m3u8
+
+# Make html using bootstrap 5 and videojs
+touch "$HTMLFILE"
+if [ ! -e "$HTMLFILE" ]; then
+  echo "couldn't make $HTMLFILE";
+  exit 1;
+fi
+
+cat > "$HTMLFILE" << VIDEO
+<!doctype html>
+<html lang="en">
+ <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title></title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous" />
+  <link href="https://unpkg.com/video.js/dist/video-js.min.css" rel="stylesheet" />
+  <script src="https://unpkg.com/video.js/dist/video.min.js"></script>
+  <script>window.addEventListener("load", () => { player = videojs("videovideo", { playsinline: true }); });</script>
+ </head>
+ <body>
+  <div class="container-fluid">
+   <div class="row mb-3">
+    <div class="text-center embed-responsive">
+     <video-js id="videovideo" class="embed-responsive-item vjs-fluid" controls>
+      <source src="$VIDEOM3U8" type="application/x-mpegURL">
+     </video-js>
+    </div>
+   </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+ </body>
+</html>
+VIDEO
